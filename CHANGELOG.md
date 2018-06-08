@@ -1,29 +1,24 @@
 ### [Unreleased][unreleased]
 
-### [0.5.5] - 2017/01/23
+### [1.0.0] - 2016/07/27
 
-##### Fixed
+##### Changed
 
-- In this old (< 1.0) version of the driver, sockets were never reused more than once because they were only
-put back in the connection pool on their first use.
+:warning: This release contains **breaking changes**. The library has been rewritten to greatly increase performance, usability and maintanability. The result is very pleasant and eleguant: we now offer 2 modules, one "single host" compatible with PUC-Lua 5.1/5.2, and a "cluster" module, compatible with OpenResty and greatly optimized.
 
-### [0.5.4] - 2016/08/31
-
-##### Added
-
-- Support for Cassandra 3.x (prefer lua-cassandra 1.0)
-
-### [0.5.3] - 2016/08/19
+- New single host `cassandra` module, able to connect to a single Cassandra node.
+- New cluster host `resty.cassandra.cluster`, able to efficiently deal with a multi-nodes Cassandra cluster.
+- No more tables as errors. All errors returned by those modules are strings.
+- Some considerable performance improvements compared to the previous versions: according to the benchmarks I made (on a late 2013 Macbook Pro), this new version allows up to 10k q/sec compared to 2k q/s with its old version. I plan on making those benchmarks available publicly in the near future.
 
 ##### Added
 
-- Use lua-resty-socket
-
-### [0.5.2] - 2016/04/19
-
-##### Added
-
-- Better error messages for SSL and authentication errors.
+- Support for named arguments when binding query parameters (binary protocol v3).
+- Support for client-side timestamps (binary protocol v3).
+- Support for query tracing.
+- New "datacenter-aware round-robin" load balancing policy. This policy will prioritize nodes from the closest datacenter in multi-DC setups.
+- A much more complete and reliable test suite (yay!).
+- A more complete documentation, including the available policies and better usage examples.
 
 ### [0.5.1] - 2016/04/11
 
@@ -172,11 +167,8 @@ Initial release. Forked from jbochi/lua-resty-cassandra v0.5.7 with some additio
 
 - `set_keyspace` erroring on names with capital letters.
 
-[unreleased]: https://github.com/thibaultCha/lua-cassandra/compare/0.5.5...HEAD
-[0.5.5]: https://github.com/thibaultCha/lua-cassandra/compare/0.5.4...0.5.5
-[0.5.4]: https://github.com/thibaultCha/lua-cassandra/compare/0.5.3...0.5.4
-[0.5.3]: https://github.com/thibaultCha/lua-cassandra/compare/0.5.2...0.5.3
-[0.5.2]: https://github.com/thibaultCha/lua-cassandra/compare/0.5.1...0.5.2
+[unreleased]: https://github.com/thibaultCha/lua-cassandra/compare/1.0.0...HEAD
+[1.0.0]: https://github.com/thibaultCha/lua-cassandra/compare/0.5.1...1.0.0
 [0.5.1]: https://github.com/thibaultCha/lua-cassandra/compare/0.5.0...0.5.1
 [0.5.0]: https://github.com/thibaultCha/lua-cassandra/compare/0.4.2...0.5.0
 [0.4.2]: https://github.com/thibaultCha/lua-cassandra/compare/0.4.1...0.4.2
