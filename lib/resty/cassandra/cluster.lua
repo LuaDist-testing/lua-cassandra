@@ -2,13 +2,14 @@
 -- Cluster module for OpenResty.
 -- @module resty.cassandra.cluster
 -- @author thibaultcha
--- @release 1.2.0
+-- @release 1.2.1
 
 local resty_lock = require 'resty.lock'
 local cassandra = require 'cassandra'
 local cql = require 'cassandra.cql'
 local ffi = require 'ffi'
 
+local update_time = ngx.update_time
 local cql_errors = cql.errors
 local ffi_cast = ffi.cast
 local ffi_str = ffi.string
@@ -230,7 +231,7 @@ end
 -----------
 
 local _Cluster = {
-  _VERSION = '1.2.0',
+  _VERSION = '1.2.1',
 }
 
 _Cluster.__index = _Cluster
@@ -244,9 +245,9 @@ _Cluster.__index = _Cluster
 -- @field default_port The port on which all nodes from the cluster are
 -- listening on. (`number`, default: `9042`)
 -- @field keyspace Keyspace to use for this cluster. (`string`, optional)
--- @field connect_timeout The timeout value when connecing to a node, in ms.
+-- @field timeout_connect The timeout value when connecing to a node, in ms.
 -- (`number`, default: `1000`)
--- @field read_timeout The timeout value when reading from a node, in ms.
+-- @field timeout_read The timeout value when reading from a node, in ms.
 -- (`number`, default: `2000`)
 -- @field retry_on_timeout Specifies if the request should be retried on the
 -- next coordinator (as per the load balancing policy)
@@ -292,7 +293,7 @@ _Cluster.__index = _Cluster
 --   contact_points = {"10.0.0.1", "10.0.0.2"},
 --   keyspace = "my_keyspace",
 --   default_port = 9042,
---   connect_timeout = 3000
+--   timeout_connect = 3000
 -- }
 --
 -- @param[type=table] opts Options for the created cluster client.
@@ -588,11 +589,18 @@ local function wait_schema_consensus(self, coordinator)
   elseif not peers then return nil, 'no peers in shm'
   elseif #peers < 2 then return true end
 
+  update_time()
+
   local ok, err, tdiff
   local tstart = get_now()
 
   repeat
+    -- disabled because this method is currently used outside of an
+    -- ngx_lua compatible context by production applications.
+    -- no fallback implemented yet.
     --ngx.sleep(0.5)
+
+    update_time()
     ok, err = check_schema_consensus(coordinator)
     tdiff = get_now() - tstart
   until ok or err or tdiff >= self.max_schema_consensus_wait
