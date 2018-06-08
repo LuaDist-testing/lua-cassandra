@@ -5,15 +5,14 @@
 --
 -- @module cassandra
 -- @author thibaultcha
--- @release 0.4.1
+-- @release 0.5.0
 
 -- @TODO
--- flush dicts on shutdown?
+-- flush dicts on shutdown
 -- tracing
 
 local log = require "cassandra.log"
 local opts = require "cassandra.options"
-local auth = require "cassandra.auth"
 local types = require "cassandra.types"
 local cache = require "cassandra.cache"
 local Errors = require "cassandra.errors"
@@ -28,6 +27,13 @@ local resty_lock
 local status, res = pcall(require, "resty.lock")
 if status then
   resty_lock = res
+end
+
+local get_phase
+local get_socket
+if ngx ~= nil then
+  get_phase = ngx.get_phase
+  get_socket = ngx.socket.tcp
 end
 
 local CQL_Errors = types.ERRORS
@@ -70,7 +76,7 @@ local DEFAULT_PROTOCOL_VERSION = 3
 --- Cassandra
 
 local Cassandra = {
-  _VERSION = "0.4.2",
+  _VERSION = "0.5.0",
   DEFAULT_PROTOCOL_VERSION = DEFAULT_PROTOCOL_VERSION,
   MIN_PROTOCOL_VERSION = MIN_PROTOCOL_VERSION
 }
@@ -85,13 +91,12 @@ Host.__index = Host
 local function new_socket(self)
   local tcp_sock, sock_type
 
-  if ngx and ngx.get_phase ~= nil and ngx.get_phase() ~= "init" then
+  if get_phase ~= nil and get_phase() ~= "init" then
     -- lua-nginx-module
-    tcp_sock = ngx.socket.tcp
     sock_type = "ngx"
+    tcp_sock = get_socket
   else
     -- fallback to luasocket
-    tcp_sock = require("socket").tcp
     sock_type = "luasocket"
     local status, res = pcall(require, "socket")
     if status then
@@ -168,11 +173,9 @@ end
 function Host:send(request)
   request:set_version(self.protocol_version)
 
-  self:set_timeout(self.options.socket_options.read_timeout)
-
   local frame_reader, err = send_and_receive(self, request)
   if err then
-    if err == "timeout" then
+    if err == "timeout" or err == "wantread" then -- cosocket/luasocket or LuaSec timeout
       return nil, Errors.TimeoutError(self.address)
     else
       return nil, Errors.SocketError(self.address, err)
@@ -204,7 +207,10 @@ local function do_ssl_handshake(self)
     local ok, res = pcall(require, "ssl")
     if not ok and string_find(res, "module 'ssl' not found", nil, true) then
       error("LuaSec not found. Please install LuaSec to use SSL with LuaSocket.")
+    elseif not ok then
+      error(res)
     end
+
     local ssl = res
     local params = {
       mode = "client",
@@ -234,8 +240,8 @@ local function do_ssl_handshake(self)
   return true
 end
 
-local function send_auth(self, authenticator)
-  local token = authenticator:initial_response()
+local function send_auth(self, provider)
+  local token = provider:initial_response()
   local auth_request = Requests.AuthResponse(token)
   local res, err = self:send(auth_request)
   if err then
@@ -260,14 +266,15 @@ function Host:connect()
 
   local ok, err = self.socket:connect(self.host, self.port)
   if ok ~= 1 then
-    --log.err("Could not connect to "..self.address..". Reason: "..err)
     return false, Errors.SocketError(self.address, err), true
   end
+
+  self:set_timeout(self.options.socket_options.read_timeout)
 
   if self.options.ssl_options.enabled then
     ok, err = do_ssl_handshake(self)
     if not ok then
-      return false, Errors.SocketError(self.address, err)
+      return false, Errors.SSLError(self.address, err)
     end
   end
 
@@ -300,13 +307,14 @@ function Host:connect()
     return false, err, true
   elseif res.must_authenticate then
     log.info("Host at "..self.address.." required authentication")
-    local authenticator, err = auth.new_authenticator(res.class_name, self.options)
-    if err then
-      return nil, Errors.AuthenticationError(err)
+    if self.options.auth == nil then
+      return nil, Errors.AuthenticationError("Host at "..self.address..
+        " required authentication but no auth provider was configured for session")
     end
-    local ok, err = send_auth(self, authenticator)
+
+    local ok, err = send_auth(self, self.options.auth)
     if err then
-      return nil, Errors.AuthenticationError(err)
+      return false, Errors.AuthenticationError(err)
     elseif ok then
       ready = true
     end
@@ -374,7 +382,7 @@ function Host:set_keep_alive()
     return true
   end
 
-  if self.socket_type == "ngx" then
+  if self:can_keep_alive() then
     -- tcpsock:setkeepalive() does not accept nil values, so this is a quick workaround
     -- see https://github.com/openresty/lua-nginx-module/pull/625
     local ok, err
@@ -498,9 +506,13 @@ end
 function RequestHandler.get_first_coordinator(hosts)
   local errors = {}
   for _, host in ipairs(hosts) do
-    local connected, err = host:connect()
+    local connected, err, maybe_down = host:connect()
     if not connected then
-      errors[host.address] = err
+      if maybe_down then
+        errors[host.address] = err
+      else
+        return nil, err
+      end
     else
       return host
     end
@@ -522,16 +534,16 @@ function RequestHandler:get_next_coordinator()
       if connected then
         self.coordinator = host
         return host
-      else
-        if maybe_down then
-          -- only on socket connect error
-          -- might be a bad host, setting DOWN
-          local cache_err = host:set_down()
-          if cache_err then
-            return nil, cache_err
-          end
+      elseif maybe_down then
+        -- only on socket connect error
+        -- might be a bad host, setting DOWN
+        local cache_err = host:set_down()
+        if cache_err then
+          return nil, cache_err
         end
         errors[host.address] = err
+      else
+        return nil, err
       end
     else
       errors[host.address] = "Host considered DOWN"
@@ -612,7 +624,7 @@ function RequestHandler:send(request)
     return self:handle_error(request, err)
   end
 
-  -- Success! Make sure to re-up node in case it was marked as DOWN
+  -- Success! Make sure to re-up the node in case it was marked as DOWN
   local ok, cache_err = self.coordinator:set_up()
   if not ok then
     return nil, cache_err
@@ -673,6 +685,7 @@ function RequestHandler:handle_error(request, err)
 end
 
 function RequestHandler:retry(request)
+  self.coordinator:close()
   self.n_retries = self.n_retries + 1
   log.info("Retrying request on next coordinator")
   return self:send_on_next_coordinator(request)
@@ -899,7 +912,7 @@ function Session:execute(query, args, query_options)
     error("argument #1 must be a string", 2)
   end
 
-  local options = table_utils.deep_copy(self.options)
+  local options = table_utils.copy_args(self.options)
   options.query_options = table_utils.extend_table(options.query_options, query_options)
 
   local request_handler = RequestHandler:new(self.hosts, options)
@@ -952,7 +965,7 @@ end
 -- @treturn table `result`: A table describing the result. Batch results are always `VOID` results. If an error occurred, this value will be `nil` and a second value describing the error is returned.
 -- @treturn table `error`: A table describing the error that occurred.
 function Session:batch(queries, query_options)
-  local options = table_utils.deep_copy(self.options)
+  local options = table_utils.copy_args(self.options)
   options.query_options = table_utils.extend_table({logged = true}, options.query_options, query_options)
 
   local request_handler = RequestHandler:new(self.hosts, options)
@@ -1083,7 +1096,6 @@ function Cassandra.spawn_session(options)
 end
 
 local SELECT_PEERS_QUERY = "SELECT peer,data_center,rack,rpc_address,release_version FROM system.peers"
---local SELECT_LOCAL_QUERY = "SELECT * FROM system.local WHERE key='local'"
 
 -- Retrieve cluster informations from a connected contact_point
 function Cassandra.refresh_hosts(options)
@@ -1108,20 +1120,10 @@ function Cassandra.refresh_hosts(options)
       return nil, err
     end
 
-    --local local_query = Requests.QueryRequest(SELECT_LOCAL_QUERY)
     local peers_query = Requests.QueryRequest(SELECT_PEERS_QUERY)
     local hosts = {}
 
-    --local rows, err = coordinator:send(local_query)
-    --if err then
-    --  return nil, err
-    --end
-    --local row = rows[1]
     local local_host = {
-      --datacenter = row["data_center"],
-      --rack = row["rack"],
-      --cassandra_version = row["release_version"],
-      --protocol_versiom = row["native_protocol_version"],
       unhealthy_at = 0,
       reconnection_delay = 0
     }
@@ -1137,10 +1139,6 @@ function Cassandra.refresh_hosts(options)
       local address = options.policies.address_resolution(row["rpc_address"])
       log.info("Adding host "..address)
       hosts[address] = {
-        --datacenter = row["data_center"],
-        --rack = row["rack"],
-        --cassandra_version = row["release_version"],
-        --protocol_version = local_host.native_protocol_version,
         unhealthy_at = 0,
         reconnection_delay = 0
       }
@@ -1221,23 +1219,6 @@ function Cassandra.spawn_cluster(options)
   end
 
   return true
-end
-
---- Set the logging level when outside of ngx_lua.
--- When used outside of ngx_lua, logs are produced to `stdout`, and have different levels, just like
--- `ngx.log()`. This is similar to the level section of the `error_log` directive in Nginx, and the
--- same logging levels are defined.
--- @param[type=string] lvl Logging level. Can be one of `"QUIET"`, `"ERR"`, `"WARN"`, `"INFO"` or `"DEBUG"`.
-function Cassandra.set_log_level(lvl)
-  log.set_lvl(lvl)
-end
-
---- Set the output format when logging outside of ngx_lua.
--- In the future this function should be able to receive a handler to allow
--- logging to other destinations than `stdout`.
--- @param[type=string] fmt A string describing the output format. It accepts two placeholders: the level of the log, and the log itself. Default is: `"%s -- %s"`.
-function Cassandra.set_log_format(fmt)
-  log.set_format(fmt)
 end
 
 --- Type serializer shorthands.
@@ -1385,5 +1366,27 @@ Cassandra.consistencies = types.consistencies
 -- @table cql_errors
 
 Cassandra.cql_errors = types.ERRORS
+
+local DEFAULT_AUTH_PROVIDERS = {
+  PlainTextProvider = require "cassandra.auth.plain_text_provider"
+}
+
+for k, v in pairs(DEFAULT_AUTH_PROVIDERS ) do
+  DEFAULT_AUTH_PROVIDERS[k] = setmetatable({}, {
+    __call = function(self, ...)
+      v.__index = v
+      local provider = setmetatable({}, v)
+      provider:new(...)
+      return provider
+    end
+  })
+end
+
+---
+-- Authentication providers that can be instanciated and given to a `session`'s options.
+-- @field PlainTextProvider provider for plain text password authentication challenge (like `PasswordAuthenticator`).
+--     cassandra.auth.PlainTextProvider("username", "password")
+-- @table auth
+Cassandra.auth = DEFAULT_AUTH_PROVIDERS
 
 return Cassandra

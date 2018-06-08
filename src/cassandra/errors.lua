@@ -35,6 +35,9 @@ local ERROR_TYPES = {
       return message.." for socket with peer "..address
     end
   },
+  SSLError = {
+    info = "Represents an error happening during the SSL handshake."
+  },
   TimeoutError = {
     info = "Represents a client-side error that is raised when the client didn't hear back from the server within {client_options.socket_options.read_timeout}.",
     message = function(address)
@@ -42,7 +45,7 @@ local ERROR_TYPES = {
     end
   },
   AuthenticationError = {
-    info = "Represents an authentication error from the driver or from a Cassandra node."
+    info = "Represents an error happening during the authentication flow."
   },
   SharedDictError = {
     info = "Represents an error with the lua_shared_dict in use.",
@@ -69,7 +72,7 @@ local _error_mt = {}
 _error_mt.__index = _error_mt
 
 function _error_mt:__tostring()
-  return tostring(string_format("%s: %s", self.type, self.message))
+  return tostring(self.message)
 end
 
 function _error_mt.__concat(a, b)

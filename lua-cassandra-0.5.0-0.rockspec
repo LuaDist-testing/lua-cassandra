@@ -1,16 +1,16 @@
 -- This file was automatically generated for the LuaDist project.
 
 package = "lua-cassandra"
-version = "0.4.2-0"
+version = "0.5.0-0"
 -- LuaDist source
 source = {
-  tag = "0.4.2-0",
+  tag = "0.5.0-0",
   url = "git://github.com/LuaDist-testing/lua-cassandra.git"
 }
 -- Original source
 -- source = {
 --   url = "git://github.com/thibaultCha/lua-cassandra",
---   tag = "0.4.2"
+--   tag = "0.5.0"
 -- }
 description = {
   summary = "Feature-rich client library for Cassandra",
@@ -40,8 +40,7 @@ build = {
     ["cassandra.policies.load_balancing"] = "src/cassandra/policies/load_balancing.lua",
     ["cassandra.policies.address_resolution"] = "src/cassandra/policies/address_resolution.lua",
 
-    ["cassandra.auth"] = "src/cassandra/auth/init.lua",
-    ["cassandra.auth.plain_text_password"] = "src/cassandra/auth/plain_text_password.lua",
+    ["cassandra.auth.plain_text_provider"] = "src/cassandra/auth/plain_text_provider.lua",
 
     ["cassandra.utils.bit"] = "src/cassandra/utils/bit.lua",
     ["cassandra.utils.time"] = "src/cassandra/utils/time.lua",
