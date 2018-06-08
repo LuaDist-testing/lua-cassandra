@@ -91,9 +91,10 @@ http {
             content_by_lua_block {
                 local Cluster = require 'resty.cassandra.cluster'
 
-                -- can live in an upvalue at the main chunk level of your
-                -- modules, to avoid creating it on every request.
-                -- see the intro example in the documentation.
+                -- For performance reasons, the cluster variable
+                -- should live in an upvalue at the main chunk level of your
+                -- modules to avoid creating it on every request.
+                -- see the 'intro' example in the online documentation.
                 local cluster, err = Cluster.new {
                     shm = 'cassandra', -- defined by the lua_shared_dict directive
                     contact_points = {'127.0.0.1', '127.0.0.2'},
@@ -127,7 +128,13 @@ With [Luarocks]:
 $ luarocks install lua-cassandra
 ```
 
-Manually:
+Or via [opm](https://github.com/openresty/opm):
+
+```
+$ opm get thibaultcha/lua-cassandra
+```
+
+Or manually:
 
 Once you have a local copy of this module's `lib/` directory, add it to your
 `LUA_PATH` (or `lua_package_path` directive for OpenResty):
@@ -231,4 +238,4 @@ $ make doc
 [badge-coveralls-url]: https://coveralls.io/r/thibaultcha/lua-cassandra?branch=master
 [badge-coveralls-image]: https://coveralls.io/repos/thibaultcha/lua-cassandra/badge.svg?branch=master&style=flat
 
-[badge-version-image]: https://img.shields.io/badge/version-1.1.0-blue.svg?style=flat
+[badge-version-image]: https://img.shields.io/badge/version-1.1.1-blue.svg?style=flat
