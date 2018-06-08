@@ -1,20 +1,20 @@
 -- This file was automatically generated for the LuaDist project.
 
 package = "lua-cassandra"
-version = "1.0.0-0"
+version = "1.1.0-0"
 -- LuaDist source
 source = {
-  tag = "1.0.0-0",
+  tag = "1.1.0-0",
   url = "git://github.com/LuaDist-testing/lua-cassandra.git"
 }
 -- Original source
 -- source = {
---   url = "git://github.com/thibaultCha/lua-cassandra",
---   tag = "1.0.0"
+--   url = "git://github.com/thibaultcha/lua-cassandra",
+--   tag = "1.1.0"
 -- }
 description = {
-  summary = "A pure Lua client library for Apache Cassandra (2.x)",
-  homepage = "https://github.com/thibaultCha/lua-cassandra",
+  summary = "A pure Lua client library for Apache Cassandra",
+  homepage = "https://github.com/thibaultcha/lua-cassandra",
   license = "MIT"
 }
 dependencies = {

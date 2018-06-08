@@ -4,7 +4,7 @@
 [![Build Status][badge-travis-image]][badge-travis-url]
 [![Coverage Status][badge-coveralls-image]][badge-coveralls-url]
 
-A pure Lua client library for Apache Cassandra (2.x), compatible with
+A pure Lua client library for Apache Cassandra (2.x/3.x), compatible with
 [OpenResty].
 
 ## Table of Contents
@@ -25,7 +25,7 @@ which adds support for multi-node Cassandra datacenters.
 
 - Single host `cassandra` module:
   - no dependencies
-  - support for Cassandra 2.x
+  - support for Cassandra 2.x and 3.x
   - simple, prepared, and batch statements
   - pagination (manual and automatic via Lua iterators)
   - SSL client-to-node connections
@@ -91,6 +91,9 @@ http {
             content_by_lua_block {
                 local Cluster = require 'resty.cassandra.cluster'
 
+                -- can live in an upvalue at the main chunk level of your
+                -- modules, to avoid creating it on every request.
+                -- see the intro example in the documentation.
                 local cluster, err = Cluster.new {
                     shm = 'cassandra', -- defined by the lua_shared_dict directive
                     contact_points = {'127.0.0.1', '127.0.0.2'},
@@ -153,8 +156,13 @@ Refer to the online [manual] and detailed [documentation]. You will also find
 
 ## Roadmap
 
+Cluster:
+- new load balancing policies (token-aware)
+
 CQL:
-- Support for native protocol v4 and Cassandra 3.x
+- implement `decimal` data type
+- v4: implement `date` and `time` data types
+- v4: implement `smallint` and `tinyint` data types
 
 [Back to TOC](#table-of-contents)
 
@@ -217,10 +225,10 @@ $ make doc
 [manual]: http://thibaultcha.github.io/lua-cassandra/manual/README.md.html
 [examples]: http://thibaultcha.github.io/lua-cassandra/examples/intro.lua.html
 
-[badge-travis-url]: https://travis-ci.org/thibaultCha/lua-cassandra
-[badge-travis-image]: https://travis-ci.org/thibaultCha/lua-cassandra.svg?branch=master
+[badge-travis-url]: https://travis-ci.org/thibaultcha/lua-cassandra
+[badge-travis-image]: https://travis-ci.org/thibaultcha/lua-cassandra.svg?branch=master
 
-[badge-coveralls-url]: https://coveralls.io/r/thibaultCha/lua-cassandra?branch=master
-[badge-coveralls-image]: https://coveralls.io/repos/thibaultCha/lua-cassandra/badge.svg?branch=master&style=flat
+[badge-coveralls-url]: https://coveralls.io/r/thibaultcha/lua-cassandra?branch=master
+[badge-coveralls-image]: https://coveralls.io/repos/thibaultcha/lua-cassandra/badge.svg?branch=master&style=flat
 
-[badge-version-image]: https://img.shields.io/badge/version-1.0.0-blue.svg?style=flat
+[badge-version-image]: https://img.shields.io/badge/version-1.1.0-blue.svg?style=flat

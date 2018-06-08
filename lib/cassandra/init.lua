@@ -2,13 +2,14 @@
 -- Single host module for PUC Lua, LuaJIT and OpenResty.
 -- @module cassandra
 -- @author thibaultcha
--- @release 1.0.0
+-- @release 1.1.0
 
 local socket = require 'cassandra.socket'
 local cql = require 'cassandra.cql'
 
 local setmetatable = setmetatable
 local requests = cql.requests
+local fmt = string.format
 local pairs = pairs
 local find = string.find
 
@@ -73,7 +74,7 @@ local find = string.find
 -- @table cassandra.auth_providers
 
 local _Host = {
-  _VERSION = '1.0.0',
+  _VERSION = '1.1.0',
   cql_errors = cql.errors,
   consistencies = cql.consistencies,
   auth_providers = require 'cassandra.auth'
@@ -215,12 +216,14 @@ function _Host:connect()
     return nil, 'no socket created'
   end
 
-  local ok, err = self.sock:connect(self.host, self.port)
+  local ok, err = self.sock:connect(self.host, self.port, {
+    pool = fmt('%s:%d:%s', self.host, self.port, self.keyspace or '')
+  })
   if not ok then return nil, err, true end
 
   if self.ssl then
     ok, err = ssl_handshake(self)
-    if not ok then return nil, err end
+    if not ok then return nil, 'SSL handshake: '..err end
   end
 
   local reused, err = self.sock:getreusedtimes()
@@ -234,6 +237,9 @@ function _Host:connect()
         find(err, 'Invalid or unsupported protocol version', nil, true) then
         -- too high protocol version
         self.sock:close()
+        local sock, err = socket.tcp()
+        if err then return nil, err end
+        self.sock = sock
         self.protocol_version = self.protocol_version - 1
         if self.protocol_version < cql.min_protocol_version then
           return nil, 'could not find a supported protocol version'
@@ -253,11 +259,8 @@ function _Host:connect()
     end
 
     if self.keyspace then
-      -- TODO: since this not sent when the socket was retrieved
-      -- from the connection pool, we must document that manually
-      -- calling set_keyspace() is required if users interact with
-      -- several at once.
-      local res, err = self:set_keyspace(self.keyspace)
+      local keyspace_req = requests.keyspace.new(self.keyspace)
+      local res, err = self:send(keyspace_req)
       if not res then return nil, err end
     end
   end
@@ -306,6 +309,27 @@ function _Host:close(...)
   return self.sock:close(...)
 end
 
+--- Change the client's keyspace.
+-- Closes the current connection and open a new one to the given
+-- keyspace.
+-- The connection is closed and reopen so that we use a different connection
+-- pool for usage in ngx_lua.
+-- @param[type=string] keyspace Name of the desired keyspace.
+-- @treturn boolean `ok`: `true` if success, `nil` if failure.
+-- @treturn string `err`: String describing the error if failure.
+function _Host:change_keyspace(keyspace)
+  local ok, err = self:close()
+  if not ok then return nil, err end
+
+  local sock, err = socket.tcp()
+  if err then return nil, err end
+
+  self.sock = sock
+  self.keyspace = keyspace
+
+  return self:connect()
+end
+
 --- Query options.
 -- @field consistency Consistency level for this request.
 -- See `cassandra.consistencies` table.
@@ -351,7 +375,7 @@ local query_options = {
   counter = false,
   -- protocol v3+ options
   timestamp = nil,
-  named = false
+  named = false,
 }
 
 local function get_opts(o)
@@ -376,6 +400,7 @@ end
 _Host.get_request_opts = get_opts
 
 local function page_iterator(self, query, args, opts)
+  opts = opts or {}
   local page = 0
   return function(_, p_rows)
     local meta = p_rows.meta
@@ -399,17 +424,6 @@ local function page_iterator(self, query, args, opts)
 end
 
 _Host.page_iterator = page_iterator
-
---- Set the client's keyspace.
--- Sends a query to change which keyspace the client is connected to.
--- @param[type=string] keyspace Name of the desired keyspace.
--- @treturn table `res`: Table holding the query result if success, `nil` if failure.
--- @treturn string `err`: String describing the error if failure.
--- @treturn number `cql_err`: If a server-side error occurred, the CQL error code.
-function _Host:set_keyspace(keyspace)
-  local keyspace_req = requests.keyspace.new(keyspace)
-  return self:send(keyspace_req)
-end
 
 --- Prepare a query.
 -- Sends a PREPARE request for the given query. The result of this request will
@@ -495,7 +509,7 @@ end
 --   logged = false
 -- }))
 --
--- @param[type=table] Array of CQL queries to execute as a batch.
+-- @param[type=table] queries Array of CQL queries to execute as a batch.
 -- @param[type=table] options (optional) Options from `query_options`
 -- for this query.
 -- @treturn table `res`: Table holding the query result if success, `nil` if failure.
@@ -594,7 +608,11 @@ end
 --   cassandra.set({"john@foo.com", "john@bar.com"})
 -- })
 --
--- @field unset Equivalent to the `null` CQL value. Useful to unset a field.
+-- @field null (native protocol v4 only) Equivalent to the `null` CQL value.
+-- Useful to unset a field.
+--     cassandra.null()
+-- @field unset Equivalent to the `not set` CQL value. Leaves field untouched
+-- for binary protocol v4+, or unset it for v2/v3.
 --     cassandra.unset()
 -- @field uuid Serialize a 32 lowercase characters string to a CQL uuid.
 --     cassandra.uuid("123e4567-e89b-12d3-a456-426655440000")
@@ -643,5 +661,6 @@ for cql_t_name, cql_t in pairs(cql.types) do
 end
 
 _Host.unset = cql.t_unset
+_Host.null = cql.t_null
 
 return _Host

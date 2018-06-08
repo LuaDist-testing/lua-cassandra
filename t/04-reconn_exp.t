@@ -1,9 +1,8 @@
 # vim:set ts=4 sw=4 et fdm=marker:
 use Test::Nginx::Socket::Lua;
+use t::Util;
 
-our $HttpConfig = <<_EOC_;
-    lua_package_path 'lib/?.lua;lib/?/init.lua;;';
-_EOC_
+our $HttpConfig = $t::Util::HttpConfig;
 
 plan tests => repeat_each() * blocks() * 3;
 
@@ -131,10 +130,10 @@ GET /t
 --- request
 GET /t
 --- response_body
-false arg #1 base must be a positive integer
-false arg #1 base must be a positive integer
-false arg #2 max must be a positive integer
-false arg #2 max must be a positive integer
+false arg #1 base_delay must be a positive integer
+false arg #1 base_delay must be a positive integer
+false arg #2 max_delay must be a positive integer
+false arg #2 max_delay must be a positive integer
 --- no_error_log
 [error]
 

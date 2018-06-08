@@ -16,9 +16,20 @@ local function exec(cmd, ignore)
 end
 
 local _M = {
-  cassandra_version = os.getenv("CASSANDRA") or "2.2.6",
+  cassandra_version = os.getenv("CASSANDRA") or "3.9",
   ssl_path = os.getenv("SSL_PATH") or "spec/fixtures/ssl"
 }
+
+local function num(v)
+  local maj, min, patch = string.match(v, "^(%d*)%.(%d*)%.?(%d*)$")
+  local str = string.format("%02d%02d%02d",
+                            tonumber(maj),
+                            tonumber(min),
+                            patch and tonumber(patch) or 0)
+  return tonumber(str)
+end
+
+_M.cassandra_version_num = num(_M.cassandra_version)
 
 --- CCM
 
@@ -60,6 +71,9 @@ function _M.ccm_start(opts)
   end
 
   exec("ccm switch "..cluster_name)
+  if _M.cassandra_version_num >= 30000 then
+    exec("ccm updateconf 'enable_user_defined_functions: true'")
+  end
   exec("ccm start --wait-for-binary-proto")
 
   local hosts = {}

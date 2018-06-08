@@ -1,6 +1,6 @@
 # lua-cassandra
 
-A pure Lua client library for Apache Cassandra (2.x), compatible with
+A pure Lua client library for Apache Cassandra (2.x/3.x), compatible with
 [OpenResty][OpenResty].
 
 This library offers 2 modules: a "single host" module (`cassandra`), compatible
@@ -19,12 +19,12 @@ supported by each Cassandra version:
   <tr><td>2.0</td><td>1, 2</td></tr>
   <tr><td>2.1</td><td>1, 2, 3</td></tr>
   <tr><td>2.2</td><td>1, 2, 3, 4</td></tr>
-  <tr><td>3.0</td><td>1, 2, 3, 4</td></tr>
+  <tr><td>3.0</td><td>3, 4</td></tr>
 </table>
 <br />
 
 This library supports binary protocols 2 and 3, hence supports Cassandra 2.x
-only (3.0 currently has some incompatibilities).
+and 3.x only.
 
 ## Installation
 
@@ -99,6 +99,9 @@ http {
             content_by_lua_block {
                 local Cluster = require 'resty.cassandra.cluster'
 
+                -- can live in an upvalue at the main chunk level of your
+                -- modules, to avoid creating it on every request.
+                -- see the intro example in the documentation.
                 local cluster, err = Cluster.new {
                     shm = 'cassandra', -- defined by the lua_shared_dict directive
                     contact_points = {'127.0.0.1', '127.0.0.2'},
