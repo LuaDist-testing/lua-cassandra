@@ -69,7 +69,7 @@ local DEFAULT_PROTOCOL_VERSION = 3
 --- Cassandra
 
 local Cassandra = {
-  _VERSION = "0.5.4",
+  _VERSION = "0.5.5",
   DEFAULT_PROTOCOL_VERSION = DEFAULT_PROTOCOL_VERSION,
   MIN_PROTOCOL_VERSION = MIN_PROTOCOL_VERSION
 }
@@ -217,6 +217,9 @@ function Host:connect()
 
   if self.socket:getreusedtimes() > 0 then
     -- No need for startup request
+    log.debug("Socket retrieved from the connection pool, ",
+              self.socket:getreusedtimes(), " times")
+    self.connected = true
     return true
   end
 
