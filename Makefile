@@ -1,40 +1,32 @@
-DEV_ROCKS=busted luacov-coveralls luacheck ldoc
+DEV_ROCKS=busted luacov luacov-coveralls luacheck ldoc
 
-.PHONY: install dev busted prove test clean coverage lint doc
+.PHONY: install dev clean test coverage lint doc
 
 install:
-	@luarocks make
+	@luarocks make lua-cassandra-*.rockspec
 
 dev: install
-	@for rock in $(DEV_ROCKS); do\
-		if ! command -v $$rock > /dev/null; then\
-			echo $$rock not found, installing via luarocks...;\
-			luarocks install $$rock;\
-		else\
-			echo $$rock already installed, skipping;\
-		fi\
+	@for rock in $(DEV_ROCKS) ; do \
+		if ! command -v $$rock > /dev/null ; then \
+			echo $$rock not found, installing via luarocks... ; \
+			luarocks install $$rock ; \
+		else \
+			echo $$rock already installed, skipping ; \
+		fi \
 	done;
 
-busted:
-	@busted -v -o gtest
-
-prove:
-	@util/prove_ccm.sh
-	@util/reindex t/* && prove
-
-test: busted prove
+test:
+	@busted -v -o gtest && prove
 
 clean:
 	@rm -f luacov.*
-	@util/clean_ccm.sh
 
 coverage: clean
-	@busted -v -o gtest --coverage
+	@busted -v --coverage
 	@luacov cassandra
 
 lint:
-	@luacheck -q src --std ngx_lua --no-redefined --no-unused-args
-	@luacheck -q spec --std 'lua51+busted' --no-redefined --no-unused-args
+	@find src spec -not -path './doc/*' -name '*.lua' | xargs luacheck -q
 
 doc:
 	@ldoc -c doc/config.ld src

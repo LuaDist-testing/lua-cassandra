@@ -33,10 +33,10 @@ describe("", function()
       local contact_points = {"0.0.0.1", "0.0.0.2", "0.0.0.3"}
       contact_points[#contact_points + 1] = _hosts[1]
 
-      local ok, err = cassandra.spawn_cluster {
+      local ok, err = cassandra.spawn_cluster({
         shm = "test",
         contact_points = contact_points
-      }
+      })
       assert.falsy(err)
       assert.True(ok)
     end)
@@ -45,13 +45,13 @@ describe("", function()
       for i, addr in ipairs(_hosts) do
         contact_points[i] = addr..":9043"
       end
-      local ok, err = cassandra.spawn_cluster {
+      local ok, err = cassandra.spawn_cluster({
         shm = "test",
         contact_points = contact_points
-      }
+      })
       assert.truthy(err)
       assert.False(ok)
-      assert.equal("all hosts tried for query failed. 127.0.0.1:9043: connection refused.", err)
+      assert.equal("NoHostAvailableError", err.type)
     end)
     it("should accept a custom port through an option", function()
       local ok, err = cassandra.spawn_cluster({
@@ -61,7 +61,7 @@ describe("", function()
       })
       assert.truthy(err)
       assert.False(ok)
-      assert.equal("all hosts tried for query failed. 127.0.0.1:9043: connection refused.", err)
+      assert.equal("NoHostAvailableError", err.type)
     end)
   end)
 
@@ -94,10 +94,10 @@ describe("", function()
       end
     end)
     it("should spawn a session in a given keyspace", function()
-      local session_in_keyspace, err = cassandra.spawn_session {
+      local session_in_keyspace, err = cassandra.spawn_session({
         shm = _shm,
         keyspace = "system"
-      }
+      })
       assert.falsy(err)
       assert.equal("system", session_in_keyspace.options.keyspace)
       assert.equal("system", session_in_keyspace.hosts[1].options.keyspace)

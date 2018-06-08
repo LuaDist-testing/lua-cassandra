@@ -112,7 +112,8 @@ describe("batch()", function()
       {"INSERT WHATEVER"},
       {"INSERT THING"}
     })
-    assert.equal("[Syntax error] line 0:-1 mismatched input '<EOF>' expecting '('", err)
+    assert.is_table(err)
+    assert.equal("ResponseError", err.type)
   end)
   it("should support protocol level timestamp", function()
     local _, err = session:batch({

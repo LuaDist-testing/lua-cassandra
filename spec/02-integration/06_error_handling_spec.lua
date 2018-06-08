@@ -35,8 +35,9 @@ describe("error handling", function()
         shm = "test",
         contact_points = contact_points
       }
+      assert.is_table(err)
       assert.False(ok)
-      assert.truthy(string.match(err, "all hosts tried for query failed"))
+      assert.equal("NoHostAvailableError", err.type)
     end)
   end)
 
@@ -58,8 +59,10 @@ describe("error handling", function()
       local session, err = cassandra.spawn_session {
         shm = shm
       }
+      assert.is_table(err)
       assert.falsy(session)
-      assert.equal("option error: options must contain contact_points to spawn session or cluster", err)
+      assert.equal("DriverError", err.type)
+      assert.equal("Options must contain contact_points to spawn session, or spawn a cluster in the init phase.", err.message)
     end)
   end)
 
@@ -78,24 +81,15 @@ describe("error handling", function()
       session:shutdown()
     end)
     it("should handle CQL errors", function()
-      local res, err = session:execute "CAN I HAZ CQL"
+      local res, err = session:execute("CAN I HAZ CQL")
       assert.falsy(res)
-      assert.equal("[Syntax error] line 1:0 no viable alternative at input 'CAN' ([CAN]...)", err)
+      assert.is_table(err)
+      assert.equal("ResponseError", err.type)
 
-      res, err = session:execute "SELECT * FROM system.local WHERE key = ?"
+      res, err = session:execute("SELECT * FROM system.local WHERE key = ?")
       assert.falsy(res)
-      assert.equal("[Invalid] Invalid amount of bind variables", err)
-    end)
-    it("returns the CQL error code", function()
-      local res, err, cql_code = session:execute "CAN I HAZ CQL"
-      assert.falsy(res)
-      assert.truthy(err)
-      assert.equal(cassandra.cql_errors.SYNTAX_ERROR, cql_code)
-
-      res, err, cql_code = session:execute "SELECT * FROM system.local WHERE key = ?"
-      assert.falsy(res)
-      assert.truthy(err)
-      assert.equal(cassandra.cql_errors.INVALID, cql_code)
+      assert.is_table(err)
+      assert.equal("ResponseError", err.type)
     end)
   end)
 
@@ -126,7 +120,7 @@ describe("error handling", function()
       assert.falsy(err)
 
       -- attempt query
-      local rows, err = session:execute "SELECT * FROM system.local"
+      local rows, err = session:execute("SELECT * FROM system.local")
       assert.falsy(err)
       assert.is_table(rows)
       assert.equal(1, #rows)

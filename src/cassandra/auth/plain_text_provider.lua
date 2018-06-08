@@ -1,4 +1,4 @@
-local fmt = string.format
+local string_format = string.format
 
 return {
   new = function(self, username, password)
@@ -12,6 +12,7 @@ return {
     self.password = password
   end,
   initial_response = function(self)
-    return fmt("\0%s\0%s", self.username, self.password)
+    return string_format("\0%s\0%s", self.username, self.password)
   end
 }
+
