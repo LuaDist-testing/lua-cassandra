@@ -1,5 +1,11 @@
---- Cassandra client library for Lua.
+--- Cassandra client library for Lua and ngx_lua (OpenResty).
+-- Compatible with Cassandra 2.0+, Lua 5.1, 5.2, 5.3, LuaJIT, OpenResty.
+--
+-- Support for binary protocols v2 and v3.
+--
 -- @module cassandra
+-- @author thibaultcha
+-- @release 0.4.1
 
 -- @TODO
 -- flush dicts on shutdown?
@@ -64,7 +70,7 @@ local DEFAULT_PROTOCOL_VERSION = 3
 --- Cassandra
 
 local Cassandra = {
-  _VERSION = "0.4.1",
+  _VERSION = "0.4.2",
   DEFAULT_PROTOCOL_VERSION = DEFAULT_PROTOCOL_VERSION,
   MIN_PROTOCOL_VERSION = MIN_PROTOCOL_VERSION
 }
@@ -542,21 +548,24 @@ local function check_schema_consensus(request_handler)
 
   local local_query = Requests.QueryRequest("SELECT schema_version FROM system.local")
   local local_res, err = request_handler.coordinator:send(local_query)
-  if err then
+  if local_res == nil or err then
     return nil, err
   end
 
   local peers_query = Requests.QueryRequest("SELECT schema_version FROM system.peers")
   local peers_res, err = request_handler.coordinator:send(peers_query)
-  if err then
+  if peers_res == nil or err then
     return nil, err
   end
 
-  local match = true
-  for _, peer_row in ipairs(peers_res) do
-    if peer_row.schema_version ~= local_res[1].schema_version then
-      match = false
-      break
+  local match = false
+  if #peers_res > 0 and #local_res > 0 then
+    match = true
+    for _, peer_row in ipairs(peers_res) do
+      if peer_row.schema_version ~= local_res[1].schema_version then
+        match = false
+        break
+      end
     end
   end
 
@@ -566,15 +575,20 @@ end
 function RequestHandler:wait_for_schema_consensus()
   log.info("Waiting for schema consensus")
 
-  local match, err
+  local match, t_diff, err
   local start = time_utils.get_time()
 
   repeat
     time_utils.wait(0.5)
     match, err = check_schema_consensus(self)
-  until match or err ~= nil or (time_utils.get_time() - start) < self.options.protocol_options.max_schema_consensus_wait
+    t_diff = time_utils.get_time() - start
+  until match or err ~= nil or t_diff >= self.options.protocol_options.max_schema_consensus_wait
 
-  return err
+  if err ~= nil then
+    return err
+  elseif not match then
+    log.err("Waiting for schema consensus timed out. "..t_diff.." > "..self.options.protocol_options.max_schema_consensus_wait)
+  end
 end
 
 function RequestHandler:send_on_next_coordinator(request)
@@ -748,7 +762,7 @@ local function prepare_query(request_handler, query)
     local prepared_key_lock = prepared_key.."_lock"
     local lock, lock_err, elapsed = lock_mutex(request_handler.options.prepared_shm, prepared_key_lock)
     if lock_err then
-      return nil, lock_err
+      return nil, "Could not create lock for prepare request: "..lock_err
     end
 
     if elapsed and elapsed == 0 then
@@ -758,11 +772,13 @@ local function prepare_query(request_handler, query)
       local res, err = request_handler:send(prepare_request)
       if err then
         return nil, err
+      elseif res.query_id == nil then
+        return nil, "Could not retrieve query id from prepare request"
       end
       query_id = res.query_id
       local ok, cache_err = cache.set_prepared_query_id(request_handler.options, query, query_id)
       if not ok then
-        return nil, cache_err
+        return nil, "Could not insert query id in cache for prepared query: "..cache_err
       end
       log.info("Query prepared for host "..request_handler.coordinator.address)
     else
@@ -770,14 +786,16 @@ local function prepare_query(request_handler, query)
       -- instantly succeed. We then skip the preparation part.
       query_id, cache_err = cache.get_prepared_query_id(request_handler.options, query)
       if cache_err then
-        return nil, cache_err
+        return nil, "Could not get query id from cache for prepared query: "..cache_err
+      elseif query_id == nil then
+        return nil, "No query id found in cache for prepared query"
       end
     end
 
     -- UNLOCK MUTEX
     lock_err = unlock_mutex(lock)
     if lock_err then
-      return nil, "Error unlocking mutex for query preparation: "..lock_err
+      return nil, "Error unlocking mutex for query for prepare request: "..lock_err
     end
   end
 
@@ -842,25 +860,37 @@ end
 -- configured reconnection policy will decide when it is time to try to connect to that
 -- node again.
 --
---     local res, err = session:execute [[
---       CREATE KEYSPACE IF NOT EXISTS my_keyspace
---       WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 1}
---     ]]
+-- When selecting a large number of rows, it is a good practise to not increase the `page_size`
+-- option, but to iterate over them. It is also useful to build web services. For such usages,
+-- this function accepts a `paging_state` and an `auto_paging` options.
 --
---     local rows, err = session:execute("SELECT * FROM system.schema_keyspaces")
---     for i, row in ipairs(rows) do
---       print(row.keyspace_name)
---     end
+-- @usage
+-- local res, err = session:execute [[
+--   CREATE KEYSPACE IF NOT EXISTS my_keyspace
+--   WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 1}
+-- ]]
 --
---     local rows, err = session:execute("SELECT * FROM users WHERE age = ?", {42}, {prepare = true})
---     for i, row in ipairs(rows) do
---       print(row.username)
---     end
+-- local rows, err = session:execute("SELECT * FROM system.schema_keyspaces")
+-- for i, row in ipairs(rows) do
+--   print(row.keyspace_name)
+-- end
+--
+-- local rows, err = session:execute("SELECT * FROM users WHERE age = ?", {42}, {prepare = true})
+-- for i, row in ipairs(rows) do
+--   print(row.username)
+-- end
+--
+-- -- With auto-pagination
+-- for rows, err, page in session:execute("SELECT * FROM users", nil, {page_size = 50, auto_paging = true}) do
+--   -- rows contains the retrived rows for this page
+--   -- err contains an eventual error and will interrupt the iteration if it is set
+--   -- page contains the current page number, starting from 1
+-- end
 --
 -- @param[type=string] query The CQL query to execute, possibly with placeholder for binded parameters.
 -- @param[type=table] args *Optional* A list of parameters to be binded to the query's placeholders.
 -- @param[type=table] query_options *Optional* Override the session`s `options.query_options` with the given values, for this request only.
--- @treturn table `result/rows`: A table describing the result. The content of this table depends on the type of the query. If an error occurred, this value will be `nil` and a second value is returned describing the error.
+-- @treturn table `result/rows`: A table describing the result. The content of this table depends on the type of the query. If an error occurred, this value will be `nil` and a second value describing the error is returned.
 -- @treturn table `error`: A table describing the error that occurred.
 function Session:execute(query, args, query_options)
   if self.terminated then
@@ -881,6 +911,46 @@ function Session:execute(query, args, query_options)
   return inner_execute(request_handler, query, args, options.query_options)
 end
 
+--- Execute a batch of queries.
+-- The session will chose a coordinator according to the load balancing policy and
+-- execute the batch on it. By default, the session executes a `logged` batch. If given in
+-- the `query_options`, the session can also execute `unlogged` and `counter` batches. The queries composing a batch can also be prepared.
+--
+-- Be weary that depending on the number of partitions involved in the given queries, using
+-- batches can overload a coordinator, lead to performance drops and constitute an anti-pattern.
+--
+-- See the documentation on [CQL Batches](https://cassandra.apache.org/doc/cql3/CQL-2.2.html#batchStmt).
+--
+-- @usage
+-- -- Basic logged batch
+-- local res, err = session:batch({
+--   {"INSERT INTO users(id, name) VALUES(123, 'Alice')"},
+--   {"UPDATE users SET name = 'Alicia' WHERE id = 123"}
+-- })
+--
+-- -- With binded parameters and prepared queries
+-- local res, err = session:batch({
+--   {"INSERT INTO users(id, name) VALUES(?, ?)", {cassandra.uuid(some_uuid), "Alice"}},
+--   {"UPDATE users SET name = ? WHERE id = ?", {cassandra.uuid(some_uuid), "Alicia"}}
+-- }, {prepare = true})
+--
+-- -- Unlogged batch
+-- local res, err = session:batch({
+--   {"INSERT INTO users(id, name) VALUES(123, 'Alice')"},
+--   {"UPDATE users SET name = 'Alicia' WHERE id = 123"}
+-- }, {logged = false})
+--
+-- -- Counter batch
+-- local res, err = session:batch({
+--   {"UPDATE table SET value = value + 1 WHERE key = 'counter'"},
+--   {"UPDATE table SET value = value + 5 WHERE key = 'counter'"},
+--   {"UPDATE table SET value = value + 2 WHERE key = ?", {"counter"}}
+-- }, {counter = true})
+--
+-- @param[type=table] queries A list of CQL queries that constitutes the batch. Each value can contain either a string, or a table containing the query and its binded parameters.
+-- @param[type=table] query_options *Optional* Override the session's `options.query_options` with the given values, for this batch only. Can also be used to specify other batch types.
+-- @treturn table `result`: A table describing the result. Batch results are always `VOID` results. If an error occurred, this value will be `nil` and a second value describing the error is returned.
+-- @treturn table `error`: A table describing the error that occurred.
 function Session:batch(queries, query_options)
   local options = table_utils.deep_copy(self.options)
   options.query_options = table_utils.extend_table({logged = true}, options.query_options, query_options)
@@ -903,6 +973,20 @@ function Session:batch(queries, query_options)
   return request_handler:send(batch_request)
 end
 
+--- Switch the session's keyspace.
+-- All underlying sockets of the session will switch to the given keyspace. Usually, the keyspace is set
+-- by the `keyspace` option given to `spawn_session`, and it is a better practise to use another session
+-- for another keyspace, but sometimes, it might be useful to switch a sesson to another keyspace.
+--
+-- @usage
+-- local ok, err = session:set_keyspace("my_keyspace")
+-- if not ok then
+--   -- handle err
+-- end
+--
+-- @param[type=string] keyspace The name of the keyspace to switch to.
+-- @treturn boolean `ok`: True if successful, false otherwise. If false, a second value describing the error is returned.
+-- @treturn table `error`: A table describing the error that occurred.
 function Session:set_keyspace(keyspace)
   local errors = {}
   self.options.keyspace = keyspace
@@ -920,6 +1004,24 @@ function Session:set_keyspace(keyspace)
   return true
 end
 
+--- Put the underlying sockets into the connection pool and keep them alive.
+-- When used inside of ngx_lua, the session will leverage the cosocket API, which maintains
+-- a connection pool of sockets to re-use for better performance. Once the session has finished
+-- its work, calling this function will allow other sessions to re-use the sockets, without having
+-- to open new ones.
+--
+-- See the lua-nginx-module documentation on [tcpsocket:setkeepalive()](https://github.com/openresty/lua-nginx-module#tcpsocksetkeepalive).
+--
+-- The underlying `tcpsocket:setkeepalive()` function will be called with the session`s options values
+-- defined in `socket_options.pool_timeout` and `socket_options.pool_size`. Those values are `nil` by default.
+--
+-- When called outside of ngx_lua, the sockets will be **closed**.
+--
+-- This function does not take any parameters and does not have any return values.
+--
+-- @usage
+-- -- Execute queries...
+-- session:set_keep_alive()
 function Session:set_keep_alive()
   for _, host in ipairs(self.hosts) do
     if host:can_keep_alive() then
@@ -930,6 +1032,11 @@ function Session:set_keep_alive()
   end
 end
 
+--- Terminate a session.
+-- Close all underlying sockets and free all data.
+-- A session closed this way cannot be re-used.
+--
+-- This function does not take any parameters and does not have any return values.
 function Session:shutdown()
   for _, host in ipairs(self.hosts) do
     host:close()
@@ -952,20 +1059,21 @@ end
 -- The created session will use the configured load balancing policy to choose a
 -- coordinator from the retrieved cluster topology on each query.
 --
---     access_by_lua_block {
---         local cassandra = require "cassandra"
---         local session, err = cassandra.spawn_session {
---             shm = "cassandra",
---             contact_points = {"127.0.0.1", "127.0.0.2"}
---         }
---         if not session then
---             ngx.log(ngx.ERR, tostring(err))
---         end
---
---         -- execute query(ies)
---
---         session:set_keep_alive()
+-- @usage
+-- access_by_lua_block {
+--     local cassandra = require "cassandra"
+--     local session, err = cassandra.spawn_session {
+--         shm = "cassandra",
+--         contact_points = {"127.0.0.1", "127.0.0.2"}
 --     }
+--     if not session then
+--         ngx.log(ngx.ERR, tostring(err))
+--     end
+--
+--     -- execute query(ies)
+--
+--     session:set_keep_alive()
+-- }
 --
 -- @param[type=table] options The session's options, including the shared dict name and **optionally* the contact points
 -- @treturn table `session`: A instanciated session, ready to be used. If an error occurred, this value will be `nil` and a second value is returned describing the error.
@@ -1078,24 +1186,25 @@ end
 -- on each request that will be executed.
 --
 -- Use this function if you want to retrieve the cluster topology sooner than when
--- you will create your first `Session`. For example:
+-- you will create your first `Session`.
 --
---     init_worker_by_lua_block {
---         local cassandra = require "cassandra"
---         local cluster, err = cassandra.spawn_cluster {
---              shm = "cassandra",
---              contact_points = {"127.0.0.1"}
---         }
+-- @usage
+-- init_worker_by_lua_block {
+--     local cassandra = require "cassandra"
+--     local cluster, err = cassandra.spawn_cluster {
+--          shm = "cassandra",
+--          contact_points = {"127.0.0.1"}
 --     }
+-- }
 --
---     access_by_lua_block {
---         local cassandra = require "cassandra"
---         -- The cluster topology is already loaded at this point,
---         -- avoiding latency on your first request.
---         local session, err = cassandra.spawn_session {
---             shm = "cassandra"
---         }
+-- access_by_lua_block {
+--     local cassandra = require "cassandra"
+--     -- The cluster topology is already loaded at this point,
+--     -- avoiding latency on your first request.
+--     local session, err = cassandra.spawn_session {
+--         shm = "cassandra"
 --     }
+-- }
 --
 -- @param[type=table] options The cluster's options, including the shared dict name and the contact points.
 -- @treturn boolean `ok`: Success of the cluster topology retrieval. If false, a second value will be returned describing the error.
@@ -1114,10 +1223,19 @@ function Cassandra.spawn_cluster(options)
   return true
 end
 
+--- Set the logging level when outside of ngx_lua.
+-- When used outside of ngx_lua, logs are produced to `stdout`, and have different levels, just like
+-- `ngx.log()`. This is similar to the level section of the `error_log` directive in Nginx, and the
+-- same logging levels are defined.
+-- @param[type=string] lvl Logging level. Can be one of `"QUIET"`, `"ERR"`, `"WARN"`, `"INFO"` or `"DEBUG"`.
 function Cassandra.set_log_level(lvl)
   log.set_lvl(lvl)
 end
 
+--- Set the output format when logging outside of ngx_lua.
+-- In the future this function should be able to receive a handler to allow
+-- logging to other destinations than `stdout`.
+-- @param[type=string] fmt A string describing the output format. It accepts two placeholders: the level of the log, and the log itself. Default is: `"%s -- %s"`.
 function Cassandra.set_log_format(fmt)
   log.set_format(fmt)
 end
@@ -1128,41 +1246,58 @@ end
 -- serialization. Some other times, it can be useful to manually enforce
 -- the type of a parameter.
 --
--- See the [Cassandra Data Types](http://docs.datastax.com/en/cql/3.1/cql/cql_reference/cql_data_types_c.html).
+-- See the documentation on [CQL Data Types](https://cassandra.apache.org/doc/cql3/CQL-2.2.html#types).
 --
 -- For this purpose, shorthands for type serialization are available
--- on the `Cassandra` table:
+-- on the `Cassandra` table.
 --
--- @field uuid Serialize a 32 lowercase characters string to a uuid
+-- @usage
+-- session:execute("SELECT * FROM users WHERE id = ?", {
+--   cassandra.uuid("123e4567-e89b-12d3-a456-426655440000")
+-- })
+--
+-- session:execute("INSERT INTO users(id, emails) VALUES(?, ?)", {
+--   1,
+--   cassandra.set({"john@foo.com", "john@bar.com"})
+--})
+--
+-- @field unset Equivalent to the `null` CQL value. Useful to unset a field.
+--     cassandra.unset()
+-- @field uuid Serialize a 32 lowercase characters string to a CQL uuid.
 --     cassandra.uuid("123e4567-e89b-12d3-a456-426655440000")
--- @field timestamp Serialize a 10 digits number into a Cassandra timestamp
+-- @field timestamp Serialize a 10 digits number into a CQL timestamp.
 --     cassandra.timestamp(1405356926)
 -- @field list
 --     cassandra.list({"abc", "def"})
+-- @field set
+--     cassandra.set({"abc", "def"})
 -- @field map
 --     cassandra.map({foo = "bar"})
--- @field set
---     cassandra.set({foo = "bar"})
--- @field udt
--- @field tuple
--- @field inet
+-- @field udt CQL UDT.
+-- @field tuple CQL tuple.
+-- @field inet CQL inet.
 --     cassandra.inet("127.0.0.1")
 --     cassandra.inet("2001:0db8:85a3:0042:1000:8a2e:0370:7334")
--- @field bigint
+-- @field bigint CQL bigint.
 --     cassandra.bigint(42000000000)
--- @field double
+-- @field double CQL double.
 --     cassandra.bigint(1.0000000000000004)
--- @field ascii
--- @field blob
--- @field boolean
--- @field counter
--- @field decimal
--- @field float
--- @field int
--- @field text
--- @field timeuuid
--- @field varchar
--- @field varint
+-- @field ascii CQL ascii.
+-- @field blob CQL blob.
+-- @field boolean CQL boolean.
+--     cassandra.boolean(true)
+-- @field counter CQL counter.
+--     cassandra.counter(1)
+-- @field decimal CQL decimal.
+-- @field float CQL float.
+--     cassandra.float(1.618033)
+-- @field int CQL int.
+--     cassandra.float(10)
+-- @field text CQL text.
+--     cassandra.float("hello world")
+-- @field timeuuid CQL timeuuid.
+-- @field varchar CQL varchar.
+-- @field varint CQL varint.
 -- @table type_serializers
 
 local types_mt = {
@@ -1172,7 +1307,6 @@ local types_mt = {
         if value == nil then
           error("argument #1 required for '"..key.."' type shorthand", 2)
         end
-
         return {value = value, type_id = types.cql_types[key]}
       end
     elseif key == "unset" then
@@ -1185,7 +1319,71 @@ local types_mt = {
 
 setmetatable(Cassandra, types_mt)
 
+--- CQL data consistencies.
+-- One of the `options` for `Session` and `execute` is the CQL consistency to use
+-- with the queries executed. This table allowes you to specify other consistencies than the default `ONE`, by specifing the `query_options.consistency` option.
+--
+-- See the documentation on [CQL data consistency](http://docs.datastax.com/en/cassandra/2.1/cassandra/dml/dml_config_consistency_c.html).
+--
+-- @usage
+-- -- For a session
+-- cassandra.spawn_session {
+--   query_options = {consistency = cassandra.consistencies.local}
+-- }
+--
+-- -- For a single query
+-- session:execute("SELECT * FROM users", nil, {consistency = cassandra.consistencies.local})
+--
+-- @field all CQL consistency `ALL`.
+--     cassandra.consistencies.all
+-- @field each_quorum CQL consistency `EACH_QUORUM`.
+--     cassandra.consistencies.each_quorum
+-- @field quorum CQL consistency `QUORUM`.
+--     cassandra.consistencies.quorum
+-- @field local_quorum CQL consistency `LOCAL_QUORUM`.
+--     cassandra.consistencies.local_quorum
+-- @field one CQL consistency `ONE`.
+--     cassandra.consistencies.one
+-- @field two CQL consistency `TWO`.
+--     cassandra.consistencies.two
+-- @field three CQL consistency `THREE`.
+--     cassandra.consistencies.three
+-- @field local_one CQL consistency `LOCAL_ONE`.
+--     cassandra.consistencies.local_one
+-- @field any CQL consistency `ANY`.
+--     cassandra.consistencies.any
+-- @field serial CQL consistency `SERIAL`.
+--     cassandra.consistencies.seriam
+-- @field local_serial CQL consistency `LOCAL_SERIAL`.
+--     cassandra.consistencies.local_serial
+-- @table consistencies
+
 Cassandra.consistencies = types.consistencies
+
+--- CQL Error types.
+-- The library returns error that are tables. When the error type is `ResponseError`,
+-- the table contains a field named `code`, which describes the CQL error. That code is
+-- an hexadecimal value, that can be compared against the constants defined in this table.
+-- @field SERVER something unexpected happened. This indicates a server-side bug.
+-- @field PROTOCOL some client message triggered a protocol violation (for instance a `QUERY` message is sent before a `STARTUP`)
+-- @field BAD_CREDENTIALS `CREDENTIALS` request failed because Cassandra did not accept the provided credentials.
+-- @field UNAVAILABLE_EXCEPTION the query could not be processed with respect to the given concurrency.
+--
+-- (This error could return more informations but it is **not yet supported**.)
+--
+-- @field OVERLOADED the request cannot be processed because the coordinator node is overloaded.
+-- @field IS_BOOTSTRAPPING the request was a read request but the coordinator node is bootstrapping.
+-- @field TRUNCATE_ERROR error during a truncation error.
+-- @field WRITE_TIMEOUT timeout exception during a write request. (This error could return more informations but it is **not yet supported**.)
+-- @field READ_TIMEOUT timeout exception during a read request. (This error could return more informations but it is **not yet supported**.)
+-- @field SYNTAX_ERROR the submitted query has a syntax error.
+-- @field UNAUTHORIZED the logged user doesn't have the right to perform the query.
+-- @field INVALID the query is syntactically correct but invalid.
+-- @field CONFIG_ERROR the query is invalid because of some configuration issue.
+-- @field ALREADY_EXISTS the query attempted to create a keyspace or a table that was already existing. (This error could return more informations but it is **not yet supported**.)
+-- @field UNPREPARED Can be thrown while a prepared statement tries to be executed if the provide prepared statement ID is not known by this host. (This error could return more informations but it is **not yet supported**.)
+-- @table cql_errors
+
 Cassandra.cql_errors = types.ERRORS
 
 return Cassandra

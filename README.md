@@ -1,8 +1,8 @@
 # lua-cassandra ![Module Version][badge-version-image] [![Build Status][badge-travis-image]][badge-travis-url] [![Coverage Status][badge-coveralls-image]][badge-coveralls-url]
 
-A pure Lua client library for Apache Cassandra (2.0+), compatible with Lua and [ngx_lua].
+A pure Lua client library for Apache Cassandra (2.0+), compatible with [ngx_lua]/[OpenResty] and plain Lua.
 
-It is build following the example of the official Datastax drivers, and tries to implement the same behaviors, options and features.
+It is implemented following the example of the official Datastax drivers, and tries to offer the same behaviors, options and features.
 
 ## Table of Contents
 
@@ -10,7 +10,8 @@ It is build following the example of the official Datastax drivers, and tries to
 - [Usage](#usage)
 - [Installation](#installation)
 - [Documentation and Examples](#documentation-and-examples)
-- [Test Suite](#test-suite)
+- [Roadmap](#roadmap)
+- [Test Suites](#test-suites)
 - [Tools](#tools)
 
 ## Features
@@ -23,8 +24,8 @@ It is build following the example of the official Datastax drivers, and tries to
 - TLS client-to-node encryption
 - Client authentication
 - Highly configurable options per session/query
-- Compatible with Cassandra 2.0 and 2.1
-- Works with Lua 5.1, 5.2, 5.3 and LuaJIT 2.x
+- Support Cassandra 2.0+
+- Compatible with Lua 5.1, 5.2, 5.3, LuaJIT 2.x, and optimized for OpenResty/ngx_lua.
 
 ## Usage
 
@@ -113,36 +114,49 @@ $ luarocks install lua-cassandra
 
 Manually:
 
-Once you have a local copy of this module's `src/` fo   lder, add it to your `LUA_PATH` (or `lua_package_path` for ngx_lua):
+Once you have a local copy of this module's `src/` directory, add it to your `LUA_PATH` (or `lua_package_path` directive for ngx_lua):
 
 ```
 /path/to/src/?.lua;/path/to/src/?/init.lua;
 ```
 
-**Note**: If used *outside* of ngx_lua, this module requires:
+**Note**: When used *outside* of ngx_lua, this module requires:
 
 - [LuaSocket](http://w3.impa.br/~diego/software/luasocket/)
 - If you wish to use TLS client-to-node encryption, [LuaSec](https://github.com/brunoos/luasec)
 
-## Documentation and examples
+## Documentation and Examples
 
-The current [documentation] targets version `0.3.6` only. `0.4.x` documentation should come soon.
+Refer to the online [manual] and detailed [documentation]. You will also find [examples] there and you can browse the test suites for in-depth ones.
 
-## Test Suite
+## Roadmap
 
-This library uses three test suites:
+CQL:
+- Support for query tracing
+- Support for native protocol v3's default timestamps and named parameters
+- Support for native protocol v4
+
+Documentation:
+- Options
+- Errors
+- Type inference of binded parameters
+- Type serialization example
+
+## Test Suites
+
+This library relies on three test suites:
 
 - Unit tests, with busted
 - Integration tests, with busted and a running Cassandra cluster
-- ngx_lua integration tests with Test::Nginx::Socket and a running Cassandra cluster
+- ngx_lua integration tests with Test::Nginx::Socket and a running Cassandra cluster too
 
-- The first can simply be run after installing [busted](http://olivinelabs.com/busted/) and running:
+The first can simply be run after installing [busted](http://olivinelabs.com/busted/) and running:
 
 ```shell
 $ busted spec/unit
 ```
 
-- The integration tests are located in another folder, and require a Cassandra instance (currently 2.1+) to be running. Your cluster's hosts (not just the contact points, but all of them) should be declared in the `HOSTS` environment variable:
+The integration tests are located in another folder, and require a Cassandra instance (currently 2.1+) to be running. Your cluster's hosts (not just the contact points, but all of them) should be declared in the `HOSTS` environment variable:
 
 ```shell
 $ HOSTS=127.0.0.1,127.0.0.2,127.0.0.3 busted spec/integration
@@ -156,7 +170,7 @@ $ prove t/
 
 ## Tools
 
-This module can also use various tools for code quality, they can easily be installed from Luarocks by running:
+This module can also use various tools for documentation and code quality, they can easily be installed from Luarocks by running:
 
 ```
 $ make dev
@@ -186,10 +200,12 @@ $ make doc
 ```
 
 [ngx_lua]: https://github.com/openresty/lua-nginx-module
+[OpenResty]: https://openresty.org
 
 [Luarocks]: https://luarocks.org
 [documentation]: http://thibaultcha.github.io/lua-cassandra/
 [manual]: http://thibaultcha.github.io/lua-cassandra/manual/README.md.html
+[examples]: http://thibaultcha.github.io/lua-cassandra/examples/basic.lua.html
 
 [badge-travis-url]: https://travis-ci.org/thibaultCha/lua-cassandra
 [badge-travis-image]: https://travis-ci.org/thibaultCha/lua-cassandra.svg?branch=master
@@ -197,4 +213,5 @@ $ make doc
 [badge-coveralls-url]: https://coveralls.io/r/thibaultCha/lua-cassandra?branch=master
 [badge-coveralls-image]: https://coveralls.io/repos/thibaultCha/lua-cassandra/badge.svg?branch=master&style=flat
 
-[badge-version-image]: https://img.shields.io/badge/version-0.4.1--0-blue.svg?style=flat
+[badge-version-image]: https://img.shields.io/badge/version-0.4.2-blue.svg?style=flat
+
