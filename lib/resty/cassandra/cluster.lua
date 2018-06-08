@@ -2,7 +2,7 @@
 -- Cluster module for OpenResty.
 -- @module resty.cassandra.cluster
 -- @author thibaultcha
--- @release 1.2.1
+-- @release 1.2.2
 
 local resty_lock = require 'resty.lock'
 local cassandra = require 'cassandra'
@@ -231,7 +231,7 @@ end
 -----------
 
 local _Cluster = {
-  _VERSION = '1.2.1',
+  _VERSION = '1.2.2',
 }
 
 _Cluster.__index = _Cluster
@@ -330,6 +330,11 @@ function _Cluster.new(opts)
         return nil, 'verify must be a boolean'
       end
       peers_opts.verify = v
+    elseif k == 'cafile' then
+      if type(v) ~= 'string' then
+        return nil, 'cafile must be a string'
+      end
+      peers_opts.cafile = v
     elseif k == 'auth' then
       if type(v) ~= 'table' then
         return nil, 'auth seems not to be an auth provider'

@@ -1,16 +1,16 @@
 -- This file was automatically generated for the LuaDist project.
 
 package = "lua-cassandra"
-version = "1.2.1-0"
+version = "1.2.2-0"
 -- LuaDist source
 source = {
-  tag = "1.2.1-0",
+  tag = "1.2.2-0",
   url = "git://github.com/LuaDist-testing/lua-cassandra.git"
 }
 -- Original source
 -- source = {
 --   url = "git://github.com/thibaultcha/lua-cassandra",
---   tag = "1.2.1"
+--   tag = "1.2.2"
 -- }
 description = {
   summary = "A pure Lua client library for Apache Cassandra",
