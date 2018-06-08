@@ -2,7 +2,7 @@
 -- Cluster module for OpenResty.
 -- @module resty.cassandra.cluster
 -- @author thibaultcha
--- @release 1.1.1
+-- @release 1.2.0
 
 local resty_lock = require 'resty.lock'
 local cassandra = require 'cassandra'
@@ -83,6 +83,10 @@ local function set_peer(self, host, up, reconn_delay, unhealthy_at,
   return true
 end
 
+local function add_peer(self, host, data_center)
+  return set_peer(self, host, true, 0, 0, data_center, "")
+end
+
 local function get_peer(self, host, status)
   local rec_v, err = self.shm:get(_rec_key .. host)
   if err then
@@ -129,6 +133,11 @@ local function get_peers(self)
   if #peers > 0 then
     return peers
   end
+end
+
+local function delete_peer(self, host)
+  self.shm:delete(_rec_key .. host) -- details
+  self.shm:delete(host) -- status bool
 end
 
 local function set_peer_down(self, host)
@@ -221,7 +230,7 @@ end
 -----------
 
 local _Cluster = {
-  _VERSION = '1.1.1',
+  _VERSION = '1.2.0',
 }
 
 _Cluster.__index = _Cluster
@@ -926,7 +935,9 @@ end
 
 _Cluster.set_peer = set_peer
 _Cluster.get_peer = get_peer
+_Cluster.add_peer = add_peer
 _Cluster.get_peers = get_peers
+_Cluster.delete_peer = delete_peer
 _Cluster.set_peer_up = set_peer_up
 _Cluster.can_try_peer = can_try_peer
 _Cluster.handle_error = handle_error
