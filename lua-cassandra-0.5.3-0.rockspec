@@ -1,16 +1,16 @@
 -- This file was automatically generated for the LuaDist project.
 
 package = "lua-cassandra"
-version = "0.5.2-0"
+version = "0.5.3-0"
 -- LuaDist source
 source = {
-  tag = "0.5.2-0",
+  tag = "0.5.3-0",
   url = "git://github.com/LuaDist-testing/lua-cassandra.git"
 }
 -- Original source
 -- source = {
 --   url = "git://github.com/thibaultCha/lua-cassandra",
---   tag = "0.5.2"
+--   tag = "0.5.3"
 -- }
 description = {
   summary = "Feature-rich client library for Cassandra",
@@ -28,6 +28,7 @@ build = {
     ["cassandra.log"] = "src/cassandra/log.lua",
     ["cassandra.cache"] = "src/cassandra/cache.lua",
     ["cassandra.errors"] = "src/cassandra/errors.lua",
+    ["cassandra.socket"] = "src/cassandra/socket.lua",
     ["cassandra.options"] = "src/cassandra/options.lua",
     ["cassandra.requests"] = "src/cassandra/requests.lua",
     ["cassandra.frame_reader"] = "src/cassandra/frame_reader.lua",
