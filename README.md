@@ -4,6 +4,8 @@ A pure Lua client library for Apache Cassandra (2.0+), compatible with [ngx_lua]
 
 It is implemented following the example of the official Datastax drivers, and tries to offer the same behaviors, options and features.
 
+**Note**: this project is currently undergoing a massive refactoring (see [lua-cassandra#15](https://github.com/thibaultCha/lua-cassandra/pull/45)), please be aware before proposing changes. Thank you!
+
 ## Table of Contents
 
 - [Features](#features)
@@ -25,7 +27,7 @@ It is implemented following the example of the official Datastax drivers, and tr
 - Client authentication
 - Highly configurable options per session/query
 - Support Cassandra 2.0+
-- Compatible with Lua 5.1, 5.2, 5.3, LuaJIT 2.x, and optimized for OpenResty/ngx_lua.
+- Compatible with Lua 5.1, 5.2, 5.3, LuaJIT 2.x, and optimized for OpenResty/ngx_lua
 
 ## Usage
 
@@ -43,15 +45,15 @@ http {
     ...
 
     location / {
-      content_by_lua '
+      content_by_lua_block {
         local cassandra = require "cassandra"
 
         local session, err = cassandra.spawn_session {
           shm = "cassandra", -- defined by "lua_shared_dict"
-          contact_points = {"127.0.0.1"}
+          contact_points = {"127.0.0.1", "127.0.0.2"}
         }
         if err then
-          ngx.log(ngx.ERR, "Could not spawn session: ", tostring(err))
+          ngx.log(ngx.ERR, "could not spawn session: ", err)
           return ngx.exit(500)
         end
 
@@ -64,7 +66,7 @@ http {
           -- ...
         end
 
-        local rows, err = session:execute("SELECT * FROM users")
+        local rows, err = session:execute "SELECT * FROM users"
         if err then
           -- ...
         end
@@ -72,7 +74,7 @@ http {
         session:set_keep_alive()
 
         ngx.say("rows retrieved: ", #rows)
-      ';
+      }
     }
   }
 }
@@ -96,7 +98,7 @@ local res, err = session:execute("INSERT INTO users(id, name, age) VALUES(?, ?, 
 })
 assert(err == nil)
 
-local rows, err = session:execute("SELECT * FROM users")
+local rows, err = session:execute "SELECT * FROM users"
 assert(err == nil)
 
 print("rows retrieved: ", #rows)
@@ -215,5 +217,5 @@ $ make doc
 [badge-coveralls-url]: https://coveralls.io/r/thibaultCha/lua-cassandra?branch=master
 [badge-coveralls-image]: https://coveralls.io/repos/thibaultCha/lua-cassandra/badge.svg?branch=master&style=flat
 
-[badge-version-image]: https://img.shields.io/badge/version-0.5.0-blue.svg?style=flat
+[badge-version-image]: https://img.shields.io/badge/version-0.5.1-blue.svg?style=flat
 
